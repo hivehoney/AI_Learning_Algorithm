@@ -1,64 +1,73 @@
 import random
-
-# 학생 수, 감독관, 수업 수, 시험장 수, 시간대 수
-num_students = 20100
-num_supervisors = 100
-num_lectures = 652
-num_exam_rooms = 52
-num_time_slots = 17
-
-# 이용 가능한 장소 및 해당 수용 인원, 감독관 목록 등 데이터 최소 13일 12시간 기준 하루 처리 52 (한타임 최소 5개강의)
-available_rooms = {"강의실 A": 50, "강의실 B": 40, "강의실 C": 30, "강의실 D": 30, "강의실 E": 30}
-special_exam_rooms = {"특별실 X": 100, "특별실 Y": 80}
-supervisors = [f"감독관{i}" for i in range(1, num_supervisors + 1)]
+import numpy as np
+import genetic as ga
+import penalty as pn
+import simul as sa
 
 
-# 강의 및 시험 정보 생성
-lectures = [{"subject": f"과목{i}", "학생 목록": []} for i in range(num_lectures)]
-lectures += [{"subject": f"시험{i}", "학생 목록": []} for i in range(num_exam_rooms)]
-exams = [{"subject": lecture["subject"], "location": "", "time": 0, "supervisors": "", "students": []} for lecture in lectures]
+def hybrid_system():
+    # 학생 수, 감독관, 시험 수, 강의실 수, 시간대 수, 모집단 크기
+    num_students = 9000
+    num_supervisors = 20
+    num_course = 600
+    num_exam_rooms = 20
+    num_time_slots = 17*12
+    population_size = 10
+    courses = []
+    supervisors = [f"감독관{i}" for i in range(1, num_supervisors + 1)]
+
+    # 이용 가능한 장소 및 해당 수용 인원, 감독관 목록 등 데이터 최소 13일 12시간 기준 하루 처리 52 (한타임 최소 5개강의)
+    available_rooms = {
+        f"강의실{i}": {
+            "감독관": random.choice(supervisors),
+            "정원": random.randint(50, 100) // 10 * 10
+        }
+        for i in range(1, num_exam_rooms + 1)
+    }
+
+    # 강의 및 시험 정보 생성
+    for _ in range(num_course):
+        personnel = int(random.sample(range(3, 10), 1)[0] * 10)
+        students_in_lecture = random.sample(range(1, num_students + 1), personnel)
+
+        course = {
+            "인원": personnel,
+            "학생": students_in_lecture
+        }
+        courses.append(course)
+
+    # HC5 제약조건 17(일) × 12(시간대) 각 강의별 3차원 행렬
+    population = np.zeros((population_size, num_exam_rooms, num_time_slots), dtype=int)
+    penalty_points = np.zeros(population_size, dtype=int)
+
+    # 초기 모집단 생성
+    for i in range(population_size):
+        chromosome = ga.generate_chromosome(courses, available_rooms, num_exam_rooms, num_time_slots)
+        population[i] = chromosome
+        penalty_point = pn.penalty_calc(chromosome, courses, available_rooms)
+        penalty_points[i] = penalty_point
 
 
-# 수업별 한정된 인원의 학생 배치
-for lecture in lectures:
-    students_in_lecture = random.sample(range(1, num_students + 1), min(random.randint(10, 20), num_students))
-    lecture["students"] = students_in_lecture
+    #페널티 포인트를 기준으로 초기 모집단 정렬
+    population = population[penalty_points.argsort()]
+    penalty_points = penalty_points[penalty_points.argsort()]
 
+    # # 100세대에 대한 유전 알고리즘을 실행
+    max_generations = 100
+    population, penalty_points = ga.reproduction(population, penalty_points, max_generations, courses, available_rooms)
 
-# 시험 및 강의 일정 생성
-def generate_exam_schedule():
-    start_time = 480  # 8:00 AM를 분 단위로 표현
-    end_time = 1200   # 8:00 PM를 분 단위로 표현
-    time_step = 60    # 1시간 간격으로 배치
-
-    # 강의실 별 시간 초기화
-    room_times = {room: start_time for room in available_rooms.keys()}
-
-    for i, exam in enumerate(exams):
-        # 시험 정보 추가
-        exam["location"] = random.choice(list(available_rooms.keys()))
-        room_time = room_times[exam["location"]]
-
-        # exam_time_addition 값을 미리 할당받아 exam["time"]에 저장
-        exam_time_addition = random.randint(1, 3) * 60
-        exam["time"] = f"{room_time}~{room_time + exam_time_addition}"
-        exam["supervisors"] = random.choice(supervisors)
-        exam["students"] = random.sample(lectures[i]["학생 목록"], min(30, len(lectures[i]["학생 목록"])))
-
-        # 1~3시간의 시간대 추가
-        room_times[exam["location"]] += exam_time_addition
-
-# 시험 일정 출력
-def print_exam_schedule():
-    for i, exam in enumerate(exams, start=1):
-        total_students = len(exam['students'])
-        print(f"일정: {exam['subject']} - 장소: {exam['location']}, 시간대: {exam['time']}, 감독관 및 교사: {exam['supervisors']},학생수: {total_students}, 학생 목록: {exam['students']}" )
+    # 시뮬레이티드 어닐링
+    temperature = 100
+    ga_best = population[0]
+    penalty_point = penalty_points[0]
+    best_candidate, best_penalty_point = sa.anneal(temperature, ga_best, penalty_point, courses, available_rooms)
+    
+    print("================= 최종 =================")
+    print("최적점수 ", best_penalty_point)
 
 
 def main():
-    # 예시 시험 일정 생성 및 출력
-    generate_exam_schedule()
-    print_exam_schedule()
+    hybrid_system()
 
 
 if __name__ == "__main__":
